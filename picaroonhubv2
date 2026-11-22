@@ -1,5 +1,5 @@
 --[[
-    Picaroon UI Library  v4.0.0
+    Picaroon Hub UI Library  v4.1.0
     Roblox executor UI library: windows, tabs, sections, components,
     theming, notifications, config save/load.
 
@@ -52,10 +52,11 @@ local DefaultTheme = {
     Success      = Color3.fromRGB(60, 200, 120),
     Warning      = Color3.fromRGB(240, 180, 50),
     Error        = Color3.fromRGB(235, 75, 85),
+    Geass        = Color3.fromRGB(238, 32, 62),
 }
 
 local Library = {
-    Version = "4.0.0",
+    Version = "4.1.0",
     Flags = {},      -- flag name -> current value
     Elements = {},   -- flag name -> element (used by config save/load)
     Windows = {},
@@ -433,19 +434,57 @@ local function MakeDraggable(handle, target, gui, janitor)
     end)
 end
 
-local function MakeLogo(parent, size)
-    local f = New("Frame", { Size = UDim2.fromOffset(size, size), BackgroundTransparency = 1, Parent = parent })
-    New("Frame", {
-        Size = UDim2.fromScale(0.62, 0.62), AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(0.5, 0.5), Rotation = 45,
-        Theme = { BackgroundColor3 = "Accent" }, Parent = f,
-    }, { New("UICorner", { CornerRadius = UDim.new(0.25, 0) }) })
-    New("Frame", {
-        Size = UDim2.fromScale(0.24, 0.24), AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(0.5, 0.5), Rotation = 45,
-        Theme = { BackgroundColor3 = "Background" }, Parent = f,
-    }, { New("UICorner", { CornerRadius = UDim.new(0.25, 0) }) })
-    return f
+-- Geass sigil, traced from the reference image (326 x 312 px) as a thick polyline:
+-- left wing, inner notch, bottom point, then the mirrored right side.
+local GeassPoints = { -- { x, y, thickness }: wings taper toward the tips
+    { 0, 90, 10 }, { 40, 110, 16 }, { 85, 134, 22 }, { 124, 158, 28 }, { 100, 198, 28 }, { 163, 252, 26 },
+    { 226, 198, 28 }, { 202, 158, 28 }, { 241, 134, 22 }, { 286, 110, 16 }, { 326, 90, 10 },
+}
+local GEASS_W, GEASS_H = 326, 312
+
+local function MakeGeass(parent, size)
+    local k = size / GEASS_W
+    local holder = New("Frame", {
+        Name = "Geass", Size = UDim2.fromOffset(size, math.floor(GEASS_H * k + 0.5)),
+        BackgroundTransparency = 1, Parent = parent,
+    })
+    for i = 1, #GeassPoints - 1 do
+        local a, b = GeassPoints[i], GeassPoints[i + 1]
+        local ax, ay, bx, by = a[1] * k, a[2] * k, b[1] * k, b[2] * k
+        local t = math.max(2, ((a[3] + b[3]) / 2) * k)
+        local dx, dy = bx - ax, by - ay
+        local len = math.sqrt(dx * dx + dy * dy)
+        New("Frame", {
+            Size = UDim2.fromOffset(len + t * 0.6, t), AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.fromOffset((ax + bx) / 2, (ay + by) / 2),
+            Rotation = math.deg(math.atan2(dy, dx)),
+            Theme = { BackgroundColor3 = "Geass" }, Parent = holder,
+        }, { Round() })
+    end
+    return holder
+end
+
+-- cfg.Logo may be "rbxassetid://123" or an https URL to a PNG (needs writefile + getcustomasset).
+-- Anything that fails to resolve falls back to the built-in Geass sigil.
+local function ResolveLogo(src)
+    if type(src) ~= "string" or src == "" then return nil end
+    if src:match("^rbxasset") then return src end
+    if src:match("^https?://") and type(writefile) == "function" and type(getcustomasset) == "function" then
+        local ok, asset = pcall(function()
+            EnsureFolder("Picaroon")
+            writefile("Picaroon/logo_cache.png", game:HttpGet(src))
+            return getcustomasset("Picaroon/logo_cache.png")
+        end)
+        if ok and asset then return asset end
+    end
+    return nil
+end
+
+local function MakeLogo(parent, size, image)
+    if image then
+        return New("ImageLabel", { Name = "Logo", Size = UDim2.fromOffset(size, size), Image = image, Parent = parent })
+    end
+    return MakeGeass(parent, size)
 end
 
 ----------------------------------------------------------------------
@@ -1424,7 +1463,7 @@ function Window:Notify(cfg)
     if self.Destroyed then return end
     if type(cfg) ~= "table" then cfg = { Content = tostring(cfg) } end
     local colorKey = NotifyColors[cfg.Type or "Info"] or "Accent"
-    local title = tostring(cfg.Title or "Picaroon")
+    local title = tostring(cfg.Title or "Picaroon Hub")
     local content = tostring(cfg.Content or "")
     local duration = cfg.Duration or 4
     local width = 280
@@ -1585,6 +1624,7 @@ function Library:CreateWindow(cfg)
     }, Window)
     local j = win.Janitor
 
+    local logoImage = ResolveLogo(cfg.Logo)
     local size = cfg.Size or UDim2.fromOffset(620, 430)
     local minSize = cfg.MinSize or Vector2.new(500, 330)
 
@@ -1612,10 +1652,11 @@ function Library:CreateWindow(cfg)
         Size = UDim2.new(1, 0, 0, 1), Position = UDim2.new(0, 0, 1, -1),
         Theme = { BackgroundColor3 = "Outline" }, Parent = topbar,
     })
-    local logo = MakeLogo(topbar, 26)
-    logo.Position = UDim2.new(0, 14, 0.5, -13)
+    local logo = MakeLogo(topbar, 30, logoImage)
+    logo.AnchorPoint = Vector2.new(0, 0.5)
+    logo.Position = UDim2.new(0, 12, 0.5, 0)
     win._titleLabel = New("TextLabel", {
-        Text = tostring(cfg.Title or "Picaroon"), Size = UDim2.new(1, -170, 0, 18), Position = UDim2.fromOffset(50, 7),
+        Text = tostring(cfg.Title or "Picaroon Hub"), Size = UDim2.new(1, -170, 0, 18), Position = UDim2.fromOffset(50, 7),
         Font = Enum.Font.GothamBold, TextSize = 14, Parent = topbar,
     })
     win._subtitleLabel = New("TextLabel", {
@@ -1758,10 +1799,13 @@ function Library:CreateWindow(cfg)
     end
     if wantMobile then
         win._mobileBtn = New("TextButton", {
-            Text = "P", Size = UDim2.fromOffset(44, 44), Position = UDim2.new(0, 12, 0.5, -22),
-            BackgroundTransparency = 0, Font = Enum.Font.GothamBold, TextSize = 18, Visible = false,
-            Theme = { BackgroundColor3 = "Accent" }, Parent = gui,
-        }, { Round() })
+            Size = UDim2.fromOffset(46, 46), Position = UDim2.new(0, 12, 0.5, -23),
+            BackgroundTransparency = 0, Visible = false,
+            Theme = { BackgroundColor3 = "Surface" }, Parent = gui,
+        }, { Round(), New("UIStroke", { Thickness = 1.5, Theme = { Color = "Geass" } }) })
+        local mLogo = MakeLogo(win._mobileBtn, 28, logoImage)
+        mLogo.AnchorPoint = Vector2.new(0.5, 0.5)
+        mLogo.Position = UDim2.fromScale(0.5, 0.5)
         win._mobileBtn.MouseButton1Click:Connect(function() win:SetVisible(true) end)
     end
 
@@ -1789,14 +1833,15 @@ function Library:CreateWindow(cfg)
                 Corner(12),
                 New("UIStroke", { Thickness = 1.5, Theme = { Color = "Outline" } }),
             })
-            local sLogo = MakeLogo(splash, 54)
-            sLogo.Position = UDim2.new(0.5, -27, 0, 20)
+            local sLogo = MakeLogo(splash, 64, logoImage)
+            sLogo.AnchorPoint = Vector2.new(0.5, 0)
+            sLogo.Position = UDim2.new(0.5, 0, 0, 18)
             New("TextLabel", {
-                Text = string.upper(tostring(cfg.Title or "Picaroon")), Size = UDim2.new(1, 0, 0, 20), Position = UDim2.fromOffset(0, 84),
+                Text = string.upper(tostring(cfg.Title or "Picaroon Hub")), Size = UDim2.new(1, 0, 0, 20), Position = UDim2.fromOffset(0, 88),
                 TextXAlignment = Enum.TextXAlignment.Center, Font = Enum.Font.GothamBold, TextSize = 16, Parent = splash,
             })
             local status = New("TextLabel", {
-                Text = steps[1], Size = UDim2.new(1, 0, 0, 16), Position = UDim2.fromOffset(0, 108),
+                Text = steps[1], Size = UDim2.new(1, 0, 0, 16), Position = UDim2.fromOffset(0, 110),
                 TextXAlignment = Enum.TextXAlignment.Center, TextSize = 12, Font = Enum.Font.Gotham,
                 Theme = { TextColor3 = "SubText" }, Parent = splash,
             })
@@ -1842,4 +1887,3 @@ end
 
 genv.__PICAROON = Library
 return Library
-
